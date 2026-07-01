@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tracker last update dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    background: #f5f5f2;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 24px 16px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: #666; margin: 0 0 20px; }
+  .panel {
+    background: #ffffff;
+    border: 1px solid #e2e2df;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  label { font-size: 13px; color: #555; display: block; margin-bottom: 6px; }
+  textarea {
+    width: 100%;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 13px;
+    padding: 10px;
+    border: 1px solid #d5d5d0;
+    border-radius: 6px;
+    resize: vertical;
+    background: #fafaf8;
+  }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+  button {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #1a1a1a;
+  }
+  button:hover { background: #f0f0ee; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  button.primary:hover { background: #333; }
+  .progress { font-size: 13px; color: #888; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px; border-bottom: 1.5px solid #ddd; color: #555; font-weight: 600; }
+  td { padding: 10px; border-bottom: 1px solid #eee; }
+  .badge { font-size: 12px; padding: 3px 9px; border-radius: 6px; white-space: nowrap; font-weight: 500; }
+  .badge-fresh { background: #eaf3de; color: #27500a; }
+  .badge-warn { background: #faeeda; color: #633806; }
+  .badge-stale { background: #fcebeb; color: #501313; }
+  .err { color: #a32d2d; }
+  .empty { text-align: center; padding: 40px 16px; color: #999; font-size: 14px; }
+  .note { font-size: 12px; color: #999; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tracker last update dashboard</h1>
+  <p class="subtitle">Live status of every client's Packing Material tracker, fetched directly from Google Sheets</p>
+
+  <div class="panel">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+      <label style="margin-bottom: 0;">Sheet list — Client Name, link or ID (one per line)</label>
+      <button id="editBtn" onclick="toggleEdit()">Edit list</button>
+    </div>
+    <textarea id="input" rows="6" style="display: none;" placeholder="Welspun, 1E9EHvu7Mli_YuronH0lJfym0o0vD-xo-98Z9mIx9C0M
+Pilgrim, https://docs.google.com/spreadsheets/d/1ZcxxO5Eq4lcDNrFeQCfy-fn4BLY9UW5O93cU0MGwMeY/edit"></textarea>
+    <div id="editControls" style="display: none; gap: 8px; margin-top: 10px;">
+      <button class="primary" onclick="saveList()">Save list</button>
+    </div>
+    <div class="btn-row">
+      <button class="primary" id="checkBtn" onclick="checkAll()">Check all sheets</button>
+      <span class="progress" id="progress"></span>
+    </div>
+    <p class="note">List is saved in this browser only. Open this file in the same browser next time to see it again.</p>
+  </div>
+
+  <div class="panel" id="tableWrap" style="display: none; overflow-x: auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>Client name</th>
+          <th>Second-last column date</th>
+          <th>Last column date</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="empty" id="empty">No sheet list saved yet. Click edit list to add your sheets.</div>
+</div>
+
+<script>
+var STORAGE_KEY = 'tracker_dashboard_sheet_list';
+
+function extractSheetId(raw) {
+  var m = raw.match(/[-\w]{25,}/);
+  return m ? m[0] : raw.trim();
+}
+
+function parseDate(str) {
+  var m = str.trim().match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+  if (!m) return null;
+  var d = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, y = parseInt(m[3], 10);
+  var dt = new Date(y, mo, d);
+  if (isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+function daysSince(dt) {
+  var now = new Date();
+  now.setHours(0,0,0,0);
+  var target = new Date(dt);
+  target.setHours(0,0,0,0);
+  return Math.round((now - target) / 86400000);
+}
+
+function fmtDate(dt) {
+  var dd = String(dt.getDate()).padStart(2, '0');
+  var mm = String(dt.getMonth() + 1).padStart(2, '0');
+  return dd + '-' + mm + '-' + dt.getFullYear();
+}
+
+function statusClassFor(days) {
+  if (days === null) return '';
+  if (days <= 7) return 'badge-fresh';
+  if (days <= 15) return 'badge-warn';
+  return 'badge-stale';
+}
+
+function parseLines(raw) {
+  return raw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean).map(function(line) {
+    var parts = line.split(',');
+    var name, ref;
+    if (parts.length >= 2) {
+      name = parts[0].trim();
+      ref = parts.slice(1).join(',').trim();
+    } else {
+      ref = parts[0].trim();
+      name = null;
+    }
+    var id = extractSheetId(ref);
+    return { name: name || id.slice(0, 8), id: id };
+  });
+}
+
+async function fetchSheetDates(entry) {
+  var url = 'https://docs.google.com/spreadsheets/d/' + entry.id + '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent('Packing Material');
+  var res = await fetch(url);
+  if (!res.ok) throw new Error('cant reach sheet (' + res.status + ')');
+  var text = await res.text();
+  if (text.trim().startsWith('<')) throw new Error('sheet not accessible, check share link');
+  var parsed = Papa.parse(text);
+  var rows = parsed.data;
+  var dates = [];
+  for (var r = 0; r < Math.min(rows.length, 5); r++) {
+    for (var c = 0; c < rows[r].length; c++) {
+      var d = parseDate(String(rows[r][c] || ''));
+      if (d) dates.push(d);
+    }
+  }
+  dates.sort(function(a, b) { return a - b; });
+  return dates;
+}
+
+function renderEmpty(show) {
+  document.getElementById('empty').style.display = show ? 'block' : 'none';
+  document.getElementById('tableWrap').style.display = show ? 'none' : 'block';
+}
+
+function toggleEdit() {
+  var ta = document.getElementById('input');
+  var ctrl = document.getElementById('editControls');
+  var showing = ta.style.display !== 'none';
+  ta.style.display = showing ? 'none' : 'block';
+  ctrl.style.display = showing ? 'none' : 'flex';
+}
+
+function saveList() {
+  var raw = document.getElementById('input').value;
+  try {
+    localStorage.setItem(STORAGE_KEY, raw);
+  } catch (e) {
+    console.error('save failed', e);
+  }
+  toggleEdit();
+  checkAll();
+}
+
+function loadSavedList() {
+  try {
+    var saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      document.getElementById('input').value = saved;
+      return saved;
+    }
+  } catch (e) {}
+  return '';
+}
+
+async function checkAll() {
+  var raw = document.getElementById('input').value;
+  var entries = parseLines(raw);
+  var tbody = document.getElementById('tbody');
+  var progressEl = document.getElementById('progress');
+  var btn = document.getElementById('checkBtn');
+  if (entries.length === 0) { renderEmpty(true); return; }
+  tbody.innerHTML = '';
+  btn.disabled = true;
+
+  var results = [];
+  for (var i = 0; i < entries.length; i++) {
+    progressEl.innerText = 'checking ' + (i + 1) + ' of ' + entries.length + ' - ' + entries[i].name;
+    var entry = entries[i];
+    var result = { name: entry.name, ok: false, dates: [], error: null };
+    try {
+      var dates = await fetchSheetDates(entry);
+      if (dates.length === 0) throw new Error('no dates found in sheet');
+      result.ok = true;
+      result.dates = dates.slice(-2);
+    } catch (e) {
+      result.error = e.message || 'fetch failed';
+    }
+    results.push(result);
+  }
+  progressEl.innerText = '';
+  btn.disabled = false;
+  renderEmpty(false);
+
+  results.sort(function(a, b) {
+    var da = a.ok ? daysSince(a.dates[a.dates.length - 1]) : -1;
+    var db = b.ok ? daysSince(b.dates[b.dates.length - 1]) : -1;
+    return db - da;
+  });
+
+  results.forEach(function(r) {
+    var tr = document.createElement('tr');
+
+    var tdName = document.createElement('td');
+    tdName.style.fontWeight = '600';
+    tdName.innerText = r.name;
+    tr.appendChild(tdName);
+
+    if (!r.ok) {
+      var tdErr = document.createElement('td');
+      tdErr.colSpan = 3;
+      tdErr.className = 'err';
+      tdErr.innerText = r.error;
+      tr.appendChild(tdErr);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    var last = r.dates[r.dates.length - 1];
+    var prev = r.dates.length > 1 ? r.dates[r.dates.length - 2] : null;
+
+    var tdPrev = document.createElement('td');
+    tdPrev.style.color = '#666';
+    tdPrev.innerText = prev ? fmtDate(prev) : '--';
+    tr.appendChild(tdPrev);
+
+    var tdLast = document.createElement('td');
+    tdLast.innerText = fmtDate(last);
+    tr.appendChild(tdLast);
+
+    var d = daysSince(last);
+    var tdStatus = document.createElement('td');
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + statusClassFor(d);
+    badge.innerText = d + 'd ago';
+    tdStatus.appendChild(badge);
+    tr.appendChild(tdStatus);
+
+    tbody.appendChild(tr);
+  });
+}
+
+(function init() {
+  var saved = loadSavedList();
+  if (saved.trim()) {
+    checkAll();
+  } else {
+    toggleEdit();
+    renderEmpty(true);
+  }
+})();
+</script>
+</body>
+</html>
