@@ -60,6 +60,29 @@
   .err { color: #a32d2d; }
   .empty { text-align: center; padding: 40px 16px; color: #999; font-size: 14px; }
   .note { font-size: 12px; color: #999; margin-top: 8px; }
+  .filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .filter-btn {
+    background: #f5f5f2;
+    border: 1px solid #e2e2df;
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #444;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .filter-btn .count {
+    background: #e2e2df;
+    color: #444;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .filter-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  .filter-btn.active .count { background: rgba(255,255,255,0.25); color: #fff; }
 </style>
 </head>
 <body>
@@ -95,7 +118,15 @@ Pilgrim, https://docs.google.com/spreadsheets/d/1ZcxxO5Eq4lcDNrFeQCfy-fn4BLY9UW5
     <p class="note" id="lastRefreshed"></p>
   </div>
 
-  <div class="panel" id="tableWrap" style="display: none; overflow-x: auto;">
+  <div class="panel" id="tableWrap" style="display: none;">
+    <div class="filter-row" id="filterRow">
+      <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All <span class="count" id="cntAll">0</span></button>
+      <button class="filter-btn" data-filter="fresh" onclick="setFilter('fresh')">≤7 days <span class="count" id="cntFresh">0</span></button>
+      <button class="filter-btn" data-filter="warn" onclick="setFilter('warn')">8-14 days <span class="count" id="cntWarn">0</span></button>
+      <button class="filter-btn" data-filter="stale" onclick="setFilter('stale')">15+ days <span class="count" id="cntStale">0</span></button>
+      <button class="filter-btn" data-filter="error" onclick="setFilter('error')">Errors <span class="count" id="cntError">0</span></button>
+    </div>
+    <div style="overflow-x: auto;">
     <table>
       <thead>
         <tr>
@@ -107,6 +138,7 @@ Pilgrim, https://docs.google.com/spreadsheets/d/1ZcxxO5Eq4lcDNrFeQCfy-fn4BLY9UW5
       </thead>
       <tbody id="tbody"></tbody>
     </table>
+    </div>
   </div>
 
   <div class="empty" id="empty">No sheet list saved yet. Click edit list to add your sheets.</div>
@@ -146,8 +178,26 @@ function fmtDate(dt) {
 function statusClassFor(days) {
   if (days === null) return '';
   if (days <= 7) return 'badge-fresh';
-  if (days <= 15) return 'badge-warn';
+  if (days <= 14) return 'badge-warn';
   return 'badge-stale';
+}
+
+function bucketFor(days) {
+  if (days === null) return 'error';
+  if (days <= 7) return 'fresh';
+  if (days <= 14) return 'warn';
+  return 'stale';
+}
+
+var lastResults = [];
+var currentFilter = 'all';
+
+function setFilter(key) {
+  currentFilter = key;
+  document.querySelectorAll('.filter-btn').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-filter') === key);
+  });
+  renderTable();
 }
 
 function parseLines(raw) {
@@ -244,11 +294,9 @@ function updateLastRefreshed() {
 async function checkAll() {
   var raw = document.getElementById('input').value;
   var entries = parseLines(raw);
-  var tbody = document.getElementById('tbody');
   var progressEl = document.getElementById('progress');
   var btn = document.getElementById('checkBtn');
   if (entries.length === 0) { renderEmpty(true); return; }
-  tbody.innerHTML = '';
   btn.disabled = true;
 
   var results = [];
@@ -276,7 +324,44 @@ async function checkAll() {
     return db - da;
   });
 
-  results.forEach(function(r) {
+  lastResults = results;
+  renderTable();
+  updateLastRefreshed();
+}
+
+function renderTable() {
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+
+  var counts = { all: lastResults.length, fresh: 0, warn: 0, stale: 0, error: 0 };
+  lastResults.forEach(function(r) {
+    var key = r.ok ? bucketFor(daysSince(r.dates[r.dates.length - 1])) : 'error';
+    counts[key]++;
+  });
+  document.getElementById('cntAll').innerText = counts.all;
+  document.getElementById('cntFresh').innerText = counts.fresh;
+  document.getElementById('cntWarn').innerText = counts.warn;
+  document.getElementById('cntStale').innerText = counts.stale;
+  document.getElementById('cntError').innerText = counts.error;
+
+  var visible = lastResults.filter(function(r) {
+    if (currentFilter === 'all') return true;
+    var key = r.ok ? bucketFor(daysSince(r.dates[r.dates.length - 1])) : 'error';
+    return key === currentFilter;
+  });
+
+  if (visible.length === 0) {
+    var trEmpty = document.createElement('tr');
+    var tdEmpty = document.createElement('td');
+    tdEmpty.colSpan = 4;
+    tdEmpty.style.cssText = 'text-align: center; padding: 24px; color: #999;';
+    tdEmpty.innerText = 'No clients in this bucket.';
+    trEmpty.appendChild(tdEmpty);
+    tbody.appendChild(trEmpty);
+    return;
+  }
+
+  visible.forEach(function(r) {
     var tr = document.createElement('tr');
 
     var tdName = document.createElement('td');
@@ -316,8 +401,6 @@ async function checkAll() {
 
     tbody.appendChild(tr);
   });
-
-  updateLastRefreshed();
 }
 
 (function init() {
