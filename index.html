@@ -147,6 +147,23 @@ Pilgrim, https://docs.google.com/spreadsheets/d/1ZcxxO5Eq4lcDNrFeQCfy-fn4BLY9UW5
 <script>
 var STORAGE_KEY = 'tracker_dashboard_sheet_list';
 
+var DEFAULT_LIST = [
+  'ure&care,1E9EHvu7Mli_YuronH0lJfym0o0vD-xo-98Z9mIx9C0M',
+  'Pilgrim,1ZcxxO5Eq4lcDNrFeQCfy-fn4BLY9UW5O93cU0MGwMeY',
+  'AceFour,1uUg5ZT1aRUgzC-xSMhKTbeBc7YOd7IgjM_W2DOU0gHQ',
+  'H&H,1EJaVPfoOhnPYDH8hK0I7Vp96cnUjZT7RGSpUDnt_Uyk',
+  'Hervolab,166y-O04pbLBMtVFRhqtbLnv3Jmg2thTsPpz46CdCuHU',
+  'KRIEYA BEAUTIY,1YOZFXazT-SvBuZes3c8BUEnK4xLzT_-yxtHnPUxF5Tg',
+  'ASAI,1iNNO6T-2NOTEEtX6cSk0eINAFf-5uRiVBWpai6nyeDc',
+  'RakFitnes,1vM7v8CZJ79W3e-5BY1jY6T2X6iU44bpBXtT-RN27hIk',
+  'TSS,1kx1Nn4c1auSwTVFSe4aEI_npeoCU7CbEI01IG6fPLfs',
+  'UNBOTTLE(TUCO),1fV4F6fRvC_N8bROB6SDe30posJODIHnSlDwo7OZmdck',
+  'BrightRoots,1uzfxLXOGevBN-fGcnMuuCxP5bHZ6jrqR4QRtDfAXNfo',
+  'Dot&Key,1sWrnl5_Eg7pX-NzE77EOkkeqN0WArXI-dVRy65bXCZg',
+  'Pilgrim PHD,1r-RRKUimUBWsHStH9FX17Z-huhrtqj29lnHA_oc3c3s',
+  'Nutrova,17I7peHNZKCkwg24rp43nYhOirNeXU6ZZfuXE4uLL-Q8'
+].join('\n');
+
 function extractSheetId(raw) {
   var m = raw.match(/[-\w]{25,}/);
   return m ? m[0] : raw.trim();
@@ -267,7 +284,8 @@ function loadSavedList() {
       return saved;
     }
   } catch (e) {}
-  return '';
+  document.getElementById('input').value = DEFAULT_LIST;
+  return DEFAULT_LIST;
 }
 
 var refreshTimer = null;
