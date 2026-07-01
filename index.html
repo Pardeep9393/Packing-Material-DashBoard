@@ -79,9 +79,20 @@ Pilgrim, https://docs.google.com/spreadsheets/d/1ZcxxO5Eq4lcDNrFeQCfy-fn4BLY9UW5
     </div>
     <div class="btn-row">
       <button class="primary" id="checkBtn" onclick="checkAll()">Check all sheets</button>
+      <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; margin: 0;">
+        <input type="checkbox" id="autoRefreshToggle" checked onchange="toggleAutoRefresh()">
+        Auto-refresh every
+      </label>
+      <select id="refreshInterval" onchange="toggleAutoRefresh()" style="font-size: 13px; padding: 4px 6px; border-radius: 6px; border: 1px solid #ccc;">
+        <option value="60000">1 min</option>
+        <option value="300000" selected>5 min</option>
+        <option value="900000">15 min</option>
+        <option value="1800000">30 min</option>
+      </select>
       <span class="progress" id="progress"></span>
     </div>
-    <p class="note">List is saved in this browser only. Open this file in the same browser next time to see it again.</p>
+    <p class="note">List is saved in this browser only. Open this file in the same browser next time to see it again. Auto-refresh only runs while this tab stays open.</p>
+    <p class="note" id="lastRefreshed"></p>
   </div>
 
   <div class="panel" id="tableWrap" style="display: none; overflow-x: auto;">
@@ -209,6 +220,27 @@ function loadSavedList() {
   return '';
 }
 
+var refreshTimer = null;
+
+function toggleAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+  var on = document.getElementById('autoRefreshToggle').checked;
+  if (on) {
+    var ms = parseInt(document.getElementById('refreshInterval').value, 10);
+    refreshTimer = setInterval(checkAll, ms);
+  }
+}
+
+function updateLastRefreshed() {
+  var now = new Date();
+  var hh = String(now.getHours()).padStart(2, '0');
+  var mm = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('lastRefreshed').innerText = 'Last refreshed at ' + hh + ':' + mm;
+}
+
 async function checkAll() {
   var raw = document.getElementById('input').value;
   var entries = parseLines(raw);
@@ -284,12 +316,15 @@ async function checkAll() {
 
     tbody.appendChild(tr);
   });
+
+  updateLastRefreshed();
 }
 
 (function init() {
   var saved = loadSavedList();
   if (saved.trim()) {
     checkAll();
+    toggleAutoRefresh();
   } else {
     toggleEdit();
     renderEmpty(true);
